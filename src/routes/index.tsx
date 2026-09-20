@@ -111,7 +111,7 @@ function Index() {
         <header className="topbar">
           <div className="brand"><div className="brand-mark"><Command size={17} /></div><div><strong>Athena</strong><span>Personal AI OS</span></div></div>
           <nav className="view-switch" aria-label="Dashboard view">
-            {(["day", "week", "ambient"] as ViewMode[]).map((mode) => <Button key={mode} variant="ghost" onClick={() => setView(mode)} className={view === mode ? "is-active" : ""}>{mode === "day" ? "Today" : mode[0].toUpperCase() + mode.slice(1)}</Button>)}
+            {(["day", "week", "ambient"] as ViewMode[]).map((mode) => <Button key={mode} variant="ghost" onClick={() => setView(mode)} className={view === mode ? "is-active" : ""}>{mode === "day" ? "Today" : `${mode.charAt(0).toUpperCase()}${mode.slice(1)}`}</Button>)}
           </nav>
           <div className="system-state"><span className="live-dot" /><span>All systems normal</span><div className="avatar">JR</div></div>
         </header>
