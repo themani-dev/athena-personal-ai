@@ -66,17 +66,21 @@ function Index() {
   const [completed, setCompleted] = useState<number[]>([]);
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
   const greeting = useMemo(() => {
-    const hour = now.getHours();
+    const hour = now?.getHours() ?? 9;
     return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   }, [now]);
+
+  const currentDate = now?.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) ?? "Today";
+  const currentTime = now?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "Syncing";
 
   const askAthena = (prompt = query) => {
     if (!prompt.trim()) return;
@@ -90,7 +94,7 @@ function Index() {
         <div className="ambient-glow" />
         <div className="ambient-topline"><span>Athena</span><span className="live-state"><i /> All systems normal</span></div>
         <div className="ambient-content">
-          <p>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+          <p>{now?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) ?? "Today"}</p>
           <h1>{greeting}, Jordan.</h1>
           <h2>Today’s focus: Work <ArrowRight /> Study <ArrowRight /> Gym</h2>
           <div className="ambient-stats">
@@ -118,7 +122,7 @@ function Index() {
 
         <GlassCard className="briefing">
           <div className="brief-copy">
-            <div className="eyebrow"><SunMedium size={13} /> {view === "week" ? "Weekly intelligence" : "Morning briefing"} · {now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
+            <div className="eyebrow"><SunMedium size={13} /> {view === "week" ? "Weekly intelligence" : "Morning briefing"} · {currentDate}</div>
             <h1>{view === "week" ? "You’re moving forward." : `${greeting}, Jordan.`}</h1>
             <p>{view === "week" ? "Career momentum improved, health remained stable, and focused time increased by 2.5 hours. Spending is the only area worth watching." : "You slept well and your recovery is normal. Today is busy, but the important work fits. Your main personal priority is completing your career study session."}</p>
             <div className="focus-chain"><StatusPill tone="accent">{view === "week" ? "This week" : "Today’s focus"}</StatusPill><span>Work</span><ArrowRight /><span>Study</span><ArrowRight /><span>Gym</span></div>
@@ -180,7 +184,7 @@ function Index() {
           </div>
         </div>
 
-        <footer className="trust-strip"><div><ShieldCheck size={15} /><span>AI labels facts, observations, interpretations, and suggestions.</span></div><div><Clock3 size={14} /> Updated {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div></footer>
+        <footer className="trust-strip"><div><ShieldCheck size={15} /><span>AI labels facts, observations, interpretations, and suggestions.</span></div><div><Clock3 size={14} /> Updated {currentTime}</div></footer>
       </div>
     </main>
   );
