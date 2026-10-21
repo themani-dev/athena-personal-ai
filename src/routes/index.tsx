@@ -2,10 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowRight,
   CalendarDays,
+  CircleDollarSign,
   Clock3,
   Command,
   Dumbbell,
   HeartPulse,
+  Mail,
   Maximize2,
   Mic,
   MoonStar,
@@ -17,8 +19,12 @@ import {
   RefreshCw,
   AlertTriangle,
   Droplets,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import {
   useDashboard,
@@ -27,7 +33,7 @@ import {
   recoveryTone,
   sleepTone,
 } from "@/hooks/use-dashboard";
-import type { CalendarEvent } from "@/lib/dashboard-types";
+import type { CalendarEvent, Insight } from "@/lib/dashboard-types";
 
 export const Route = createFileRoute("/")(
   (
@@ -101,6 +107,71 @@ function EventRow({ event }: { event: CalendarEvent }) {
   );
 }
 
+function InsightCard({ insight }: { insight: Insight }) {
+  const Icon =
+    insight.label === "good"
+      ? TrendingUp
+      : insight.label === "warning" || insight.label === "critical"
+        ? TrendingDown
+        : Minus;
+  return (
+    <article className="insight">
+      <div>
+        <StatusPill tone={insight.label}>{insight.type}</StatusPill>
+        <span>{insight.domain}</span>
+      </div>
+      <p>
+        <strong>{insight.title}.</strong> {insight.body}
+      </p>
+      <div className="reason">
+        <Icon size={13} style={{ opacity: 0.6 }} />
+        <span style={{ opacity: 0.7, fontSize: "0.78rem" }}>Based on your WHOOP data</span>
+      </div>
+    </article>
+  );
+}
+
+/** Mini sparkline for recovery trend */
+function RecoveryChart({ data }: { data: { date: string; recovery_score: number }[] }) {
+  if (data.length < 2) return null;
+  const chartData = data.map((d) => ({
+    score: Math.round(d.recovery_score),
+    label: new Date(d.date).toLocaleDateString("en-US", { weekday: "short", day: "numeric" }),
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={72}>
+      <AreaChart data={chartData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="recovGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <YAxis domain={[0, 100]} hide />
+        <Tooltip
+          contentStyle={{
+            background: "rgba(10,10,20,0.85)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: "6px",
+            fontSize: "0.75rem",
+          }}
+          formatter={(v: number) => [`${v}%`, "Recovery"]}
+          labelFormatter={(l: string) => l}
+        />
+        <Area
+          type="monotone"
+          dataKey="score"
+          stroke="var(--color-accent)"
+          strokeWidth={1.5}
+          fill="url(#recovGrad)"
+          dot={false}
+          activeDot={{ r: 3, fill: "var(--color-accent)" }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
 function Index() {
   const [view, setView] = useState<ViewMode>("day");
   const [query, setQuery] = useState("");
@@ -132,7 +203,9 @@ function Index() {
   const strain = health?.strain;
   const workout = health?.last_workout;
   const nutrition = health?.nutrition;
+  const insights = health?.insights ?? [];
   const calendar = data?.calendar ?? [];
+  const email = data?.email;
   const errors = data?.errors ?? [];
 
   const recTone = recoveryTone(recovery?.score ?? null);
@@ -181,18 +254,18 @@ function Index() {
               <HeartPulse />
               <span>Recovery</span>
               <strong>
-                {isLoading ? "…" : recovery?.score != null ? `${recovery.score}` : "—"}
+                {isLoading ? "…" : recovery?.score != null ? `${recovery.score}%` : "—"}
               </strong>
             </div>
             <div>
-              <CalendarDays />
-              <span>Next</span>
+              <Mail />
+              <span>Email</span>
               <strong>
                 {isLoading
                   ? "…"
-                  : calendar.length > 0
-                    ? calendar[0].title.slice(0, 20)
-                    : "Nothing scheduled"}
+                  : email?.needs_attention != null
+                    ? `${email.needs_attention} need attention`
+                    : "—"}
               </strong>
             </div>
           </div>
@@ -382,14 +455,16 @@ function Index() {
 
         {/* Dashboard grid */}
         <div className="dashboard-grid">
-          {/* Wide column */}
+          {/* ── Wide column ── */}
           <div className="column column-wide">
-            {/* Last workout */}
+            {/* Workout detail */}
             <GlassCard>
               <div className="card-heading">
                 <div>
-                  <span className="kicker">Latest activity</span>
-                  <h2>Workout</h2>
+                  <span className="kicker">Hevy · Latest session</span>
+                  <h2>
+                    {isLoading ? <Skeleton className="w-32" /> : (workout?.title ?? "Workout")}
+                  </h2>
                 </div>
                 <Dumbbell size={18} />
               </div>
@@ -406,28 +481,78 @@ function Index() {
                 </div>
               ) : workout?.title ? (
                 <>
-                  <div className="metric-list">
-                    <div>
-                      <span>Session</span>
-                      <strong>{workout.title}</strong>
-                    </div>
-                    <div>
-                      <span>Strain</span>
-                      <strong>{workout.strain ?? "—"}</strong>
-                    </div>
+                  <div className="metric-list compact" style={{ marginBottom: "0.75rem" }}>
                     <div>
                       <span>Date</span>
                       <strong>{formatEventDate(workout.date)}</strong>
                     </div>
+                    <div>
+                      <span>Strain</span>
+                      <strong>{workout.strain != null ? `${workout.strain} / 21` : "—"}</strong>
+                    </div>
+                    <div>
+                      <span>Output</span>
+                      <strong>
+                        {workout.kilojoules != null ? `${workout.kilojoules} kJ` : "—"}
+                      </strong>
+                    </div>
                   </div>
-                  {workout.exercises.length > 0 && (
-                    <div className="tag-row" style={{ marginTop: "0.75rem" }}>
-                      {workout.exercises.slice(0, 5).map((ex) => (
-                        <span key={ex}>{ex}</span>
-                      ))}
-                      {workout.exercises.length > 5 && (
-                        <span>+{workout.exercises.length - 5} more</span>
-                      )}
+                  {workout.sets.length > 0 && (
+                    <div style={{ overflowX: "auto" }}>
+                      <table
+                        style={{ width: "100%", fontSize: "0.78rem", borderCollapse: "collapse" }}
+                      >
+                        <thead>
+                          <tr style={{ opacity: 0.5, textAlign: "left" }}>
+                            <th style={{ paddingBottom: "0.4rem", fontWeight: 500 }}>Exercise</th>
+                            <th
+                              style={{
+                                paddingBottom: "0.4rem",
+                                fontWeight: 500,
+                                textAlign: "right",
+                              }}
+                            >
+                              Sets
+                            </th>
+                            <th
+                              style={{
+                                paddingBottom: "0.4rem",
+                                fontWeight: 500,
+                                textAlign: "right",
+                              }}
+                            >
+                              Reps
+                            </th>
+                            <th
+                              style={{
+                                paddingBottom: "0.4rem",
+                                fontWeight: 500,
+                                textAlign: "right",
+                              }}
+                            >
+                              Weight
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {workout.sets.map((s, i) => (
+                            <tr
+                              key={i}
+                              style={{
+                                borderTop: "1px solid rgba(255,255,255,0.06)",
+                                lineHeight: 2,
+                              }}
+                            >
+                              <td>{s.exercise}</td>
+                              <td style={{ textAlign: "right", opacity: 0.7 }}>{s.sets}</td>
+                              <td style={{ textAlign: "right", opacity: 0.7 }}>{s.reps}</td>
+                              <td style={{ textAlign: "right", fontWeight: 600 }}>
+                                {s.weight_lbs != null ? `${s.weight_lbs} lbs` : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </>
@@ -466,44 +591,64 @@ function Index() {
             </GlassCard>
           </div>
 
-          {/* Mid column */}
+          {/* ── Mid column ── */}
           <div className="column column-mid">
-            {/* Recovery trend */}
+            {/* Cross-domain insights — real computed observations */}
             <GlassCard className="insights-card">
               <div className="card-heading">
                 <div>
-                  <span className="kicker accent-text">WHOOP · 5-day trend</span>
+                  <span className="kicker accent-text">Cross-domain intelligence</span>
+                  <h2>What I noticed</h2>
+                </div>
+                <Sparkles size={18} />
+              </div>
+              {isLoading ? (
+                <p className="muted-copy">Analysing your data…</p>
+              ) : insights.length > 0 ? (
+                insights.map((ins, i) => <InsightCard key={i} insight={ins} />)
+              ) : (
+                <p className="muted-copy">Nothing unusual detected today.</p>
+              )}
+            </GlassCard>
+
+            {/* 14-day recovery trend chart */}
+            <GlassCard>
+              <div className="card-heading">
+                <div>
+                  <span className="kicker">WHOOP · 14-day trend</span>
                   <h2>Recovery</h2>
                 </div>
                 <HeartPulse size={18} />
               </div>
               {isLoading ? (
-                <p className="muted-copy">Loading trend data…</p>
+                <Skeleton className="w-full h-16" />
               ) : (health?.recovery_trend ?? []).length > 0 ? (
                 <>
-                  <div className="metric-list compact">
-                    {health!.recovery_trend.slice(-5).map((pt) => (
-                      <div key={pt.date}>
-                        <span>
-                          {new Date(pt.date).toLocaleDateString("en-US", {
-                            weekday: "short",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                        <strong>
-                          <StatusPill tone={recoveryTone(pt.recovery_score)}>
-                            {Math.round(pt.recovery_score)}%
-                          </StatusPill>
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="reason" style={{ marginTop: "0.75rem" }}>
+                  <RecoveryChart data={health!.recovery_trend} />
+                  <div className="reason" style={{ marginTop: "0.5rem" }}>
                     <StatusPill tone="neutral">HRV</StatusPill>
                     <span>{recovery?.hrv != null ? `${recovery.hrv} ms` : "—"}</span>
                     <StatusPill tone="neutral">RHR</StatusPill>
                     <span>{recovery?.resting_hr != null ? `${recovery.resting_hr} bpm` : "—"}</span>
+                    <StatusPill tone="neutral">SpO₂</StatusPill>
+                    <span>{recovery?.spo2 != null ? `${recovery.spo2}%` : "—"}</span>
+                  </div>
+                  {/* Last 5 scores as pills */}
+                  <div className="tag-row" style={{ marginTop: "0.6rem" }}>
+                    {health!.recovery_trend.slice(-5).map((pt) => (
+                      <span
+                        key={pt.date}
+                        title={new Date(pt.date).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      >
+                        <StatusPill tone={recoveryTone(pt.recovery_score)}>
+                          {Math.round(pt.recovery_score)}%
+                        </StatusPill>
+                      </span>
+                    ))}
                   </div>
                 </>
               ) : (
@@ -555,7 +700,7 @@ function Index() {
             </GlassCard>
           </div>
 
-          {/* Narrow column */}
+          {/* ── Narrow column ── */}
           <div className="column column-narrow">
             {/* Health vitals */}
             <GlassCard>
@@ -618,11 +763,79 @@ function Index() {
               </div>
             </GlassCard>
 
+            {/* Email — real Gmail triage */}
+            <GlassCard>
+              <div className="card-heading">
+                <div>
+                  <span className="kicker">Gmail · Triage</span>
+                  <h2>Email</h2>
+                </div>
+                <Mail size={18} />
+              </div>
+              {isLoading ? (
+                <Skeleton className="w-full h-8" />
+              ) : (
+                <>
+                  <div className="mail-count">
+                    <strong>{email?.needs_attention ?? "—"}</strong>
+                    <span>need attention</span>
+                  </div>
+                  <p className="muted-copy">
+                    {email?.total_unread != null ? `${email.total_unread} total unread` : "No data"}
+                    {email?.needs_attention === 0 ? " · Inbox clear" : ""}
+                  </p>
+                  {(email?.recent ?? []).length > 0 && (
+                    <div
+                      className="metric-list compact"
+                      style={{ marginTop: "0.6rem", gap: "0.5rem" }}
+                    >
+                      {email!.recent.slice(0, 3).map((msg) => (
+                        <div
+                          key={msg.id}
+                          style={{
+                            flexDirection: "column",
+                            alignItems: "flex-start",
+                            gap: "0.1rem",
+                          }}
+                        >
+                          <span style={{ fontSize: "0.72rem", opacity: 0.55 }}>
+                            {msg.from.replace(/<.*>/, "").trim().slice(0, 28)}
+                          </span>
+                          <strong style={{ fontSize: "0.78rem", lineHeight: 1.3 }}>
+                            {msg.subject.slice(0, 44)}
+                            {msg.subject.length > 44 ? "…" : ""}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </GlassCard>
+
+            {/* Finance — placeholder until Horus has purchase data */}
+            <GlassCard>
+              <div className="card-heading">
+                <div>
+                  <span className="kicker">Finance</span>
+                  <h2>Spending</h2>
+                </div>
+                <CircleDollarSign size={18} />
+              </div>
+              <div className="mail-count">
+                <strong style={{ fontSize: "1.1rem", opacity: 0.4 }}>—</strong>
+                <span>connecting soon</span>
+              </div>
+              <p className="muted-copy" style={{ marginTop: "0.5rem" }}>
+                Finance data will appear here once Horus has purchase history connected.
+              </p>
+            </GlassCard>
+
             {/* Nutrition */}
             <GlassCard>
               <div className="card-heading">
                 <div>
-                  <span className="kicker">Nutrition</span>
+                  <span className="kicker">Athena · Logged</span>
                   <h2>Food & Water</h2>
                 </div>
                 <Droplets size={18} />
@@ -665,28 +878,6 @@ function Index() {
                 </>
               )}
             </GlassCard>
-
-            {/* Calendar summary */}
-            <GlassCard>
-              <div className="card-heading">
-                <div>
-                  <span className="kicker">This week</span>
-                  <h2>Calendar</h2>
-                </div>
-                <CalendarDays size={18} />
-              </div>
-              <div className="mail-count">
-                <strong>{isLoading ? "…" : calendar.length}</strong>
-                <span>event{calendar.length !== 1 ? "s" : ""} this week</span>
-              </div>
-              <p className="muted-copy">
-                {isLoading
-                  ? "Loading…"
-                  : calendar.length > 0
-                    ? `Next: ${calendar[0].title}`
-                    : "No upcoming events."}
-              </p>
-            </GlassCard>
           </div>
         </div>
 
@@ -694,8 +885,8 @@ function Index() {
           <div>
             <ShieldCheck size={15} />
             <span>
-              Live data from WHOOP · Hevy · Google Calendar. Labels: facts, observations,
-              interpretations.
+              Live: WHOOP · Hevy · Google Calendar · Gmail. Finance connecting soon. Labels: facts,
+              observations, interpretations.
             </span>
           </div>
           <div>
