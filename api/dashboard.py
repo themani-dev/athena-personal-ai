@@ -505,6 +505,8 @@ def _serve(port: int = 5175) -> None:
     """Minimal HTTP server for local dev — Vite proxies /api/dashboard here."""
     import http.server
 
+    host = os.environ.get("API_HOST", "127.0.0.1")
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass  # quiet
@@ -530,8 +532,8 @@ def _serve(port: int = 5175) -> None:
                 self.send_response(404)
                 self.end_headers()
 
-    httpd = http.server.HTTPServer(("127.0.0.1", port), Handler)
-    print(f"Athena data API running on http://127.0.0.1:{port}/api/dashboard", flush=True)
+    httpd = http.server.HTTPServer((host, port), Handler)
+    print(f"Athena data API running on http://{host}:{port}/api/dashboard", flush=True)
     httpd.serve_forever()
 
 
