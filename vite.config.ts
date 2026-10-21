@@ -12,10 +12,16 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Override nitro preset from cloudflare-module → bun for self-hosted Docker deployment.
+  // Lovable cloud builds continue to work (they inject their own preset override).
+  nitro: {
+    preset: "bun",
+  },
   vite: {
     server: {
       proxy: {
         // Proxy /api/dashboard → local Python data server (api/dashboard.py --serve)
+        // In production Docker, nginx proxies /api/ to the api container directly.
         "/api/dashboard": {
           target: "http://127.0.0.1:5175",
           changeOrigin: true,

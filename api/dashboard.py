@@ -30,10 +30,20 @@ from pathlib import Path
 from typing import Any
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
+# Defaults are the local dev paths; override via env vars for Docker deployment.
 
-ATHENA_DB = Path("/home/bujji/personal-ai-os/agents/athena/tracking/athena.db")
-GOOGLE_TOKEN = Path("/home/bujji/personal-ai-os/agents/horus/google_token.json")
-GOOGLE_SECRET = Path("/home/bujji/personal-ai-os/agents/horus/google_client_secret.json")
+ATHENA_DB = Path(os.environ.get(
+    "ATHENA_DB",
+    "/home/bujji/personal-ai-os/agents/athena/tracking/athena.db"
+))
+GOOGLE_TOKEN = Path(os.environ.get(
+    "GOOGLE_TOKEN",
+    "/home/bujji/personal-ai-os/agents/horus/google_token.json"
+))
+GOOGLE_SECRET = Path(os.environ.get(
+    "GOOGLE_SECRET",
+    "/home/bujji/personal-ai-os/agents/horus/google_client_secret.json"
+))
 
 # Domains that are known recruiter/spam senders — filtered from "needs attention" count
 _RECRUITER_DOMAINS = {
