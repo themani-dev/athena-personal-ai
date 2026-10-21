@@ -12,4 +12,15 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      proxy: {
+        // Proxy /api/dashboard → local Python data server (api/dashboard.py --serve)
+        "/api/dashboard": {
+          target: "http://127.0.0.1:5175",
+          changeOrigin: true,
+        },
+      },
+    },
+  },
 });
