@@ -26,11 +26,19 @@ export interface StrainData {
   max_hr: number | null;
 }
 
+export interface WorkoutSet {
+  exercise: string;
+  weight_lbs: number | null;
+  reps: number | null;
+  sets: number;
+}
+
 export interface WorkoutData {
   title: string | null;
   date: string | null;
-  exercises: string[];
+  sets: WorkoutSet[];
   strain: number | null;
+  kilojoules: number | null;
 }
 
 export interface RecoveryTrendPoint {
@@ -52,6 +60,14 @@ export interface NutritionData {
   total_protein_g: number | null;
 }
 
+export interface Insight {
+  type: "observation" | "interpretation" | "suggestion";
+  domain: string;
+  title: string;
+  body: string;
+  label: "good" | "warning" | "critical" | "neutral" | "accent";
+}
+
 export interface HealthData {
   recovery: RecoveryData;
   sleep: SleepData;
@@ -59,6 +75,7 @@ export interface HealthData {
   last_workout: WorkoutData;
   recovery_trend: RecoveryTrendPoint[];
   nutrition: NutritionData;
+  insights: Insight[];
 }
 
 export interface CalendarEvent {
@@ -71,10 +88,26 @@ export interface CalendarEvent {
   all_day: boolean;
 }
 
+export interface EmailMessage {
+  id: string;
+  from: string;
+  subject: string;
+  date: string;
+  snippet: string;
+  labels: string[];
+}
+
+export interface EmailSummary {
+  total_unread: number;
+  needs_attention: number;
+  recent: EmailMessage[];
+}
+
 export interface DashboardPayload {
   generated_at: string;
   date: string;
   health: HealthData;
   calendar: CalendarEvent[];
+  email: EmailSummary;
   errors: string[];
 }
