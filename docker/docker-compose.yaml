@@ -1,0 +1,59 @@
+services:
+  # ── Data API ─────────────────────────────────────────────────────────────────
+  # Pure Python stdlib — reads Athena SQLite DB + Horus Google token
+  # Serves GET /api/dashboard as JSON on port 8000 internally
+  api:
+    build:
+      context: .. # repo root — Dockerfile.api copies from api/
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "${API_PORT:-8001}:8000"
+    volumes:
+      # Athena health DB — read-only
+      - ${ATHENA_DB_PATH}:/data/athena.db:ro
+      # Google OAuth token — read-write (api refreshes and writes back)
+      - ${GOOGLE_TOKEN_PATH}:/data/google_token.json
+      # Google client secret — read-only
+      - ${GOOGLE_SECRET_PATH}:/data/google_secret.json:ro
+    environment:
+      ATHENA_DB: /data/athena.db
+      GOOGLE_TOKEN: /data/google_token.json
+      GOOGLE_SECRET: /data/google_secret.json
+      API_PORT: "8000"
+      API_HOST: "0.0.0.0"
+    networks: [dashboard-net]
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/dashboard', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
+  # TanStack Start SSR app built with Bun, served by Nitro (bun preset)
+  frontend:
+    build:
+      context: .. # repo root — Dockerfile.frontend copies from app/ src
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "${FRONTEND_PORT:-3001}:3000"
+    environment:
+      NITRO_HOST: "0.0.0.0"
+      NITRO_PORT: "3000"
+      API_INTERNAL_URL: "http://api:8000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [dashboard-net]
+    restart: unless-stopped
+
+networks:
+  dashboard-net:
+    driver: bridge

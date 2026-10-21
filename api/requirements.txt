@@ -1,0 +1,4 @@
+# Athena Dashboard API — Python dependencies
+# api/dashboard.py uses stdlib only (json, sqlite3, urllib, pathlib, datetime)
+# No third-party packages required.
+# Add here if future integrations (e.g. requests, google-auth) are added.

@@ -1,0 +1,19 @@
+# Build context excludes
+node_modules
+.git
+.output
+dist
+*.log
+.env
+
+# App-level dev artifacts
+app/node_modules
+app/.output
+app/dist
+app/.turbo
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode
+*.swp
