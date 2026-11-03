@@ -1,0 +1,24 @@
+# Single-stage: api/dashboard.py is pure Python stdlib — no pip packages needed.
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+# Build context is the repo root (set in docker-compose.yaml)
+COPY api/dashboard.py .
+COPY api/requirements.txt .
+
+# Non-root user
+RUN adduser --disabled-password --gecos '' appuser && chown -R appuser /app
+USER appuser
+
+# Data files are bind-mounted at runtime via docker-compose.
+# The script reads paths from these env vars (with local dev defaults):
+#   ATHENA_DB     → /data/athena.db
+#   GOOGLE_TOKEN  → /data/google_token.json
+#   GOOGLE_SECRET → /data/google_secret.json
+
+EXPOSE 8000
+ENV API_PORT=8000
+ENV API_HOST=0.0.0.0
+
+CMD ["python", "dashboard.py", "--serve"]
