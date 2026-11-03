@@ -1,0 +1,40 @@
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+# TanStack Start uses SSR (nitro/bun preset) — output is a server bundle,
+# NOT a static dist/. We run it with Bun directly, not nginx.
+FROM oven/bun:1-alpine AS builder
+
+WORKDIR /build
+
+# Build context is the repo root (set in docker-compose.yaml)
+# Install deps first for layer cache
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile
+
+# Copy full source and build
+COPY . .
+RUN bun run build
+# Output lands in .output/ — entrypoint: .output/server/index.mjs
+
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM oven/bun:1-alpine AS runtime
+
+WORKDIR /app
+
+# Non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Copy only the built output
+COPY --from=builder /build/.output /app/.output
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
+# Nitro bun server listens on 3000 by default
+EXPOSE 3000
+
+# NITRO_HOST / NITRO_PORT let us override without rebuilding
+ENV NITRO_HOST=0.0.0.0
+ENV NITRO_PORT=3000
+
+CMD ["bun", "run", ".output/server/index.mjs"]
