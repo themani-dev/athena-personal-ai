@@ -1,204 +1,277 @@
-# Athena Dashboard
+<div align="center">
 
-A personal health and productivity command center. Shows WHOOP recovery, sleep, and strain data; a Health tab with timeseries metrics, physical measurements, and nutrition charts; daily progress rings; and calendar and email summaries. All data routes require a login.
+# 🧠 Athena — Dashboard
 
-## Features
+[![Docker](https://img.shields.io/badge/docker-compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docs.docker.com/get-docker/)
+[![Bun](https://img.shields.io/badge/bun-1.x-F9F1E1?style=flat-square&logo=bun&logoColor=black)](https://bun.sh)
+[![Python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![TanStack Start](https://img.shields.io/badge/TanStack-Start_SSR-FF4154?style=flat-square&logo=react&logoColor=white)](https://tanstack.com/start)
 
-- **Overview tab** — WHOOP recovery score, sleep performance, strain, hydration, steps, calories, today's workouts, Athena coaching suggestion, upcoming calendar events, email triage, and AI insights
-- **Health tab** — collapsible sections for health metrics (WHOOP timeseries with 7-day averages), physical measurements (weight, waist with optional target thresholds), and nutrition (calories, protein with optional target thresholds)
-- **Login gate** — session-cookie auth with rate limiting and account lockout; every data route returns `401` without a valid session
-- **Proxy architecture** — Nitro server routes forward all `/api/*` requests to the internal Python data API, keeping browser fetch URLs stable and credentials server-side
-- **Docker deployment** — two-container stack (Python API + Bun/Nitro frontend) on a private bridge network
+**Your health, calendar, and email — in one private tab, running on your own machine.**
 
-## Architecture
+Pulls live WHOOP data, Hevy workouts, Gmail triage, and Google Calendar events from agents already on your machine. No third-party cloud. All routes sit behind a login.
 
-```
-Browser
-  │
-  │  HTTPS (tunnel / private network)
-  ▼
-┌─────────────────────────────────┐
-│  Frontend container             │
-│  TanStack Start + Nitro (Bun)  │
-│  Port: FRONTEND_PORT → 3000    │
-│                                 │
-│  /api/* server routes           │
-│    proxy to internal API ──────►│──┐
-└─────────────────────────────────┘  │
-                                     ▼
-                        ┌────────────────────────┐
-                        │  API container          │
-                        │  Python stdlib HTTP     │
-                        │  Port: API_PORT → 8000  │
-                        │                         │
-                        │  reads (read-only):     │
-                        │  - Athena SQLite DB      │
-                        │  - Google OAuth token   │
-                        │  - Suggestions dir      │
-                        └────────────────────────┘
-```
+[**🚀 Deploy**](#-deployment) · [**🛠 Local Dev**](#-local-development) · [**⚙️ Configuration**](#%EF%B8%8F-configuration)
 
-Both containers share `dashboard-net` (bridge). Neither port should be exposed directly to the internet.
+</div>
 
-## Prerequisites
+---
 
-- [Docker](https://docs.docker.com/get-docker/) with Compose plugin (v2)
-- Athena SQLite database file (health, workout, food/water logs)
-- Google OAuth token and client secret JSON files (for calendar/email; optional)
-- Login credentials file created by `app/api/dashboard.py` (see Setup)
+## 📋 Table of Contents
 
-For local development without Docker:
-- [Bun](https://bun.sh/) ≥ 1.0
-- Python 3.12+
+- [Overview](#-overview)
+- [Architecture](#-architecture)
+- [Prerequisites](#-prerequisites)
+- [Deployment](#-deployment)
+- [Configuration](#%EF%B8%8F-configuration)
+- [Local Development](#-local-development)
+- [Project Structure](#-project-structure)
 
-## Setup
+---
 
-### 1. Create the login credentials file
+## 🎯 Overview
 
-The API reads a credentials file containing a username and a scrypt hash. Create it once, outside the repo, with `chmod 600`:
+A single-page personal command centre that aggregates data from your running AI agents:
 
-```sh
-python3 app/api/dashboard.py --create-credentials
-```
-
-The script prompts for a username and password. It writes only the salt and hash — never the plaintext password.
-
-Store the file at a path you control; you will reference it in `.env` as `AUTH_CREDENTIALS_PATH`.
-
-### 2. Create `.env`
-
-Copy the table below into a `.env` file at `dashboard/` (never commit it):
-
-| Variable | Required | Description |
+| Tab / Card | Data | Source |
 |---|---|---|
-| `ATHENA_DB_PATH` | yes | Absolute path to the Athena SQLite database file. Mounted read-only. |
-| `AUTH_CREDENTIALS_PATH` | yes | Absolute path to the credentials file created in step 1. Must be `chmod 600`. Mounted read-only. |
-| `GOOGLE_TOKEN_PATH` | optional | Absolute path to the Horus Google OAuth token JSON. Mounted read-write (API refreshes and writes back). |
-| `GOOGLE_SECRET_PATH` | optional | Absolute path to the Horus Google client secret JSON. Mounted read-only. |
-| `SUGGESTIONS_DIR_PATH` | optional | Directory where Athena writes `athena-daily-suggestion-*.json` files. Defaults to `~/reports/dashboard-v3`. Mounted read-only. |
-| `FRONTEND_PORT` | optional | Host port for the frontend container. Defaults to `3001`. |
-| `API_PORT` | optional | Host port for the API container. Defaults to `8001`. |
+| 🫀 Recovery | Score, HRV, RHR, SpO₂ | WHOOP → Athena agent |
+| 😴 Sleep | Duration, performance %, disturbances | WHOOP → Athena agent |
+| ⚡ Strain | Day strain, avg/max HR | WHOOP → Athena agent |
+| 🏋️ Workout | Last session, exercises, sets × reps × lbs | Hevy → Athena agent |
+| 💧 Nutrition | Water, calories, protein | Athena agent (self-reported) |
+| 📅 Calendar | Upcoming events (7 days) | Google Calendar → Horus agent |
+| 📬 Email | Unread count, actionable items | Gmail → Horus agent |
+| 📈 Health tab | WHOOP timeseries, physical measurements, nutrition charts | Athena agent |
+
+**All data stays on your machine** — the API reads local files and never phones home.
+
+---
+
+## 🏗 Architecture
+
+```mermaid
+graph LR
+    Browser["🌐 Browser\nlocalhost:FRONTEND_PORT"] --> Frontend["📦 frontend\nBun · Nitro SSR\nTanStack Start"]
+
+    Frontend -->|"GET /api/*"| API["🐍 api\nPython 3.12\nstdlib only"]
+
+    API -->|"bind-mount :ro"| DB[("🗄️ athena.db\nWHOOP · Hevy\nFood · Water")]
+    API -->|"bind-mount :rw\n(token refresh)"| Token[("🔑 google_token.json\nCalendar · Gmail")]
+    API -->|"bind-mount :ro"| Secret[("🔒 google_client_secret.json")]
+    API -->|"bind-mount :ro"| Creds[("🔐 auth_credentials.env\nscrypt hash")]
+    API -->|"bind-mount :ro"| Suggestions[("💡 suggestions/\nAthena daily JSON")]
+
+    subgraph "Docker · dashboard-net"
+        Frontend
+        API
+    end
+
+    subgraph "Host machine (bind-mounted)"
+        DB
+        Token
+        Secret
+        Creds
+        Suggestions
+    end
+```
+
+The Python data API is **pure stdlib** — zero pip dependencies. It reads the Athena SQLite database directly and calls Google APIs using tokens managed by the Horus agent. The frontend is server-side rendered by Nitro/Bun. All `/api/*` routes are proxied server-side by Nitro — credentials never touch the browser.
+
+---
+
+## ✅ Prerequisites
+
+- **Docker Engine** + Compose plugin v2
+  ```bash
+  sudo apt-get install -y docker.io docker-compose-v2
+  ```
+- **Athena agent** running and syncing WHOOP/Hevy data into `athena.db`
+- **Horus agent** with a valid Google OAuth token (`google_token.json` with a live refresh token)
+- **Login credentials file** created before first run (see [Deployment](#-deployment))
+
+| File | Purpose | Must be |
+|---|---|---|
+| `athena.db` | SQLite DB — WHOOP, Hevy, food/water logs | Readable |
+| `google_token.json` | Google OAuth — Calendar + Gmail, auto-refreshed | Read-write |
+| `google_client_secret.json` | Google OAuth client credentials | Readable |
+| `auth_credentials.env` | Dashboard login — username + scrypt hash | Readable (`chmod 600`) |
+
+---
+
+## 🚀 Deployment
+
+### 1. Create the credentials file
+
+Run once, outside the repo. The script prompts for a username and password and stores only the salt + scrypt hash:
+
+```bash
+cd dashboard/app
+python3 api/dashboard.py --create-credentials
+```
+
+Note the output path — you will set it as `AUTH_CREDENTIALS_PATH` in `.env`.
+
+### 2. Configure environment
+
+Create `dashboard/.env` (never commit it):
+
+```bash
+ATHENA_DB_PATH=/path/to/athena.db
+GOOGLE_TOKEN_PATH=/path/to/google_token.json
+GOOGLE_SECRET_PATH=/path/to/google_client_secret.json
+AUTH_CREDENTIALS_PATH=/path/to/auth_credentials.env
+SUGGESTIONS_DIR_PATH=/path/to/reports/dashboard-v3
+FRONTEND_PORT=3001
+API_PORT=8001
+```
 
 ### 3. Build and start
 
-```sh
+```bash
 cd dashboard/app/docker
 docker compose --env-file ../../.env up -d --build
 ```
 
-The frontend waits for the API health check (`GET /api/auth/status → 200`) before starting.
+> **First build:** ~3 min (Bun installs packages + TanStack Start SSR compilation). Subsequent builds use layer cache and finish in seconds.
 
-## Usage
+### 4. Open
 
-### Start
-
-```sh
-cd dashboard/app/docker
-docker compose --env-file ../../.env up -d
+```bash
+open http://localhost:3001
+# Verify the API directly:
+curl http://localhost:8001/api/auth/status
 ```
 
-### Stop
+### Managing containers
 
-```sh
-docker compose --env-file ../../.env down
-```
-
-### View logs
-
-```sh
-# Both containers
-docker compose --env-file ../../.env logs -f
-
-# API only
+```bash
+# Logs
 docker compose --env-file ../../.env logs -f api
-
-# Frontend only
 docker compose --env-file ../../.env logs -f frontend
-```
 
-### Restart after a code change
+# Stop (data is safe — bind-mounted)
+docker compose --env-file ../../.env down
 
-```sh
+# Start again
+docker compose --env-file ../../.env up -d
+
+# Rebuild after code changes
 docker compose --env-file ../../.env up -d --build
 ```
 
-### Local development (no Docker)
+---
 
-Start the Python API:
+## ⚙️ Configuration
 
-```sh
-cd dashboard/app
-python3 api/dashboard.py --serve
-```
+All configuration lives in `dashboard/.env`. **Never commit `.env`.**
 
-The API defaults to port `5175`. Start the frontend dev server in a second terminal:
-
-```sh
-cd dashboard/app
-bun install
-bun run dev
-```
-
-Vite proxies `/api/*` to the local Python server.
-
-## Configuration
-
-### Health and nutrition targets
-
-Calorie, protein, weight, and waist targets are set as constants near the top of `app/api/dashboard.py`. They default to `0`, which means "not set" — no threshold line is drawn on the charts until a non-zero value is entered.
+| Variable | Default | Description |
+|---|---|---|
+| `ATHENA_DB_PATH` | _(required)_ | Absolute host path to `athena.db` |
+| `AUTH_CREDENTIALS_PATH` | _(required)_ | Absolute host path to the credentials file (`chmod 600`) |
+| `GOOGLE_TOKEN_PATH` | _(optional)_ | Absolute host path to `google_token.json` |
+| `GOOGLE_SECRET_PATH` | _(optional)_ | Absolute host path to `google_client_secret.json` |
+| `SUGGESTIONS_DIR_PATH` | `~/reports/dashboard-v3` | Directory where Athena writes daily suggestion JSON files |
+| `FRONTEND_PORT` | `3001` | Browser-facing dashboard port |
+| `API_PORT` | `8001` | Data API port |
 
 ### Session and lockout
 
 | Variable | Default | Description |
 |---|---|---|
-| `SESSION_TTL_SECONDS` | `43200` (12 h) | How long a session cookie stays valid. |
-| `MAX_LOGIN_ATTEMPTS` | `5` | Failed attempts before lockout. |
-| `LOGIN_LOCKOUT_SECONDS` | `900` (15 min) | Lockout duration per username and IP. |
+| `SESSION_TTL_SECONDS` | `43200` (12 h) | Session cookie lifetime |
+| `MAX_LOGIN_ATTEMPTS` | `5` | Failed attempts before lockout |
+| `LOGIN_LOCKOUT_SECONDS` | `900` (15 min) | Lockout duration per username and IP |
 
-These can be overridden as environment variables passed to the API container.
+### Ports
 
-## Security notes
+| Port | Service | Notes |
+|---|---|---|
+| `FRONTEND_PORT` | Frontend | Browser-facing |
+| `API_PORT` | API | Debug: `curl http://localhost:<API_PORT>/api/auth/status` |
 
-- Every data route returns `401` without a valid session cookie.
-- Sessions are random tokens stored in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie.
-- Five failed logins lock that username and IP for 15 minutes.
-- All data responses send `Cache-Control: no-store, private`.
-- The Athena database is opened read-only.
-- The API runs as a non-root user inside the container.
-- Do not expose `FRONTEND_PORT` or `API_PORT` directly to the internet — put them behind an authenticated tunnel or private network.
+Do not expose either port directly to the internet — put them behind an authenticated tunnel or private network.
 
-## Health check
+---
 
-The API container's health check polls `GET /api/auth/status`, which returns `200` with no data payload. The frontend container depends on this check passing before it starts.
+## 🛠 Local Development
 
-Manual check:
+### Run without Docker
 
-```sh
-curl -s http://localhost:${API_PORT:-8001}/api/auth/status
+```bash
+# Terminal 1 — data API on 127.0.0.1:5175
+cd dashboard/app
+python3 api/dashboard.py --serve
 ```
 
-Expected response: `{"status": "ok"}` with HTTP 200.
+```bash
+# Terminal 2 — frontend dev server with HMR
+cd dashboard/app
+bun install
+bun run dev
+# Vite proxies /api/* → 127.0.0.1:5175 automatically
+# Open http://localhost:3000
+```
 
-## API routes
+### Scripts
 
-| Method | Path | Auth required | Description |
-|---|---|---|---|
-| `POST` | `/api/login` | no | Exchange credentials for a session cookie. |
-| `POST` | `/api/logout` | yes | Invalidate the current session. |
-| `GET` | `/api/auth/status` | no | Health check; returns `200` with no data. |
-| `GET` | `/api/dashboard` | yes | Full dashboard JSON payload. |
-| `GET` | `/api/health/today` | yes | Today's health metrics snapshot. |
-| `GET` | `/api/health/timeseries` | yes | WHOOP metric timeseries data. |
-| `GET` | `/api/health/calories` | yes | Daily calorie and protein log. |
-| `GET` | `/api/health/suggestion` | yes | Latest Athena coaching suggestion. |
+```bash
+bun run dev      # dev server with HMR
+bun run build    # production SSR build → .output/
+bun run lint     # ESLint
+bun run format   # Prettier
+```
 
-## Excluded files
+### Test the API standalone
 
-`.gitignore` covers:
-- `__pycache__/` and `*.pyc` — Python bytecode
-- `.env` — local environment overrides (never commit)
-- Health data, credentials files, OAuth tokens, and database files are excluded by the root `.gitignore`
+```bash
+python3 dashboard/app/api/dashboard.py | python3 -m json.tool
+```
 
-## License
+---
 
-TBD by owner.
+## 📁 Project Structure
+
+```
+dashboard/
+│
+├── app/
+│   ├── api/
+│   │   ├── dashboard.py          # Data API — Python 3.12 stdlib, zero pip deps
+│   │   └── requirements.txt      # Empty — stdlib only
+│   │
+│   ├── server/api/               # Nitro server routes (proxy layer)
+│   │   ├── dashboard.ts          # GET /api/dashboard → internal API
+│   │   ├── login.ts              # POST /api/login → internal API
+│   │   ├── logout.ts             # POST /api/logout → internal API
+│   │   └── health/               # GET /api/health/* → internal API
+│   │
+│   ├── src/
+│   │   ├── routes/
+│   │   │   ├── index.tsx         # Main dashboard — all cards, real data
+│   │   │   └── __root.tsx        # App shell, error boundaries, head config
+│   │   ├── hooks/                # React Query hooks (dashboard, health, auth)
+│   │   ├── lib/                  # TypeScript types + error utilities
+│   │   ├── components/
+│   │   │   ├── HealthTab.tsx     # Health tab — timeseries, measurements, nutrition
+│   │   │   ├── LoginPage.tsx     # Login gate
+│   │   │   └── ui/               # shadcn/ui component library
+│   │   └── styles.css            # Tailwind v4 design system + custom CSS
+│   │
+│   └── docker/
+│       ├── Dockerfile.frontend   # Multi-stage: oven/bun build → bun runtime
+│       ├── Dockerfile.api        # Single-stage: python:3.12-slim
+│       ├── docker-compose.yaml   # Two services + dashboard-net bridge
+│       └── .dockerignore
+│
+└── README.md
+```
+
+---
+
+<div align="center">
+
+Maintained by **Forge** (Personal AI OS) · Data stays on your machine, always.
+
+</div>
